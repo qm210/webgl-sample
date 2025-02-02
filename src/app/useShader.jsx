@@ -1,15 +1,42 @@
-import {useCallback, useEffect, useRef, useState} from "preact/hooks";
+import {useCallback, useEffect, useMemo, useRef, useState} from "preact/hooks";
 
-const getContext = (canvas) => (
-    canvas.getContext('webgl') ||
-    canvas.getContext('experimental-webgl')
-);
+const USE_WEBGL_2 = true;
+
+const getContext = (canvas) => {
+    // hint: getContext() also takes params like e.g.
+    // { alpha: true, depth: false, stencil: false, antialias: false, preserveDrawingBuffer: false };
+    // and there is gl.getExtension('...');!
+    let context;
+    if (USE_WEBGL_2) {
+        context = canvas.getContext('webgl2');
+        if (context) {
+            return context;
+        } else {
+            console.warn("You don't support WebGL2, trying WebGL1...");
+        }
+    }
+    context = (
+        canvas.getContext('webgl') ||
+        canvas.getContext('experimental-webgl')
+    );
+    if (!context) {
+        alert("No WebGL available, what is this, Internet Explorer 0.1?");
+    }
+    return context;
+};
 
 const vertexShader = `
-attribute vec3 position; 
+#version 300 es
+
+in vec3 position;
+ 
 void main(void) {
     gl_Position = vec4(position, 1.0);
-}`;
+}`.trim();
+
+const errorRegex = /ERROR: (\d+):(\d+): (.*)/;
+
+const daySeconds = 60 * 60 * 24;
 
 export const useShader = (fragShaderCode) => {
     const ref = useRef();
@@ -28,6 +55,11 @@ export const useShader = (fragShaderCode) => {
             index: null,
         },
     });
+    const [uniforms, setUniforms] = useState({
+        iResolution: null,
+        iAspectRatio: null,
+    });
+    const [loopSec, setLoopSec] = useState(null);
     const initFragShader = useRef(fragShaderCode);
     const timeZero = useRef();
     const running = useRef(true);
@@ -50,7 +82,7 @@ export const useShader = (fragShaderCode) => {
     const compileFragmentShader = useCallback((newFragmentShader) => {
         const [shaderObj, error] =
             initShaderProgram(glRef.current, newFragmentShader, shader.current);
-        if (shaderObj.prog) {
+        if (shaderObj.prog && !error) {
             shader.current = shaderObj;
             setCompiledAt(Date.now());
         }
@@ -65,18 +97,52 @@ export const useShader = (fragShaderCode) => {
         }
     }, [error, stop, restart]);
 
+    useEffect(() => {
+        if (!ref.current) {
+            return;
+        }
+        const rect = ref.current.getBoundingClientRect();
+        setUniforms(state => ({
+            ...state,
+            iResolution: [rect.width, rect.height],
+            iAspectRatio: rect.height / rect.width,
+        }));
+        // width/height attributes actually set the inner resolution, not the client size
+        ref.current.width = rect.width;
+        ref.current.height = rect.height;
+    }, []);
+
     const render = useCallback((gl, iTime) => {
         const p = shader.current.prog;
+        if (!p) {
+            return;
+        }
         gl.useProgram(p);
-        let uID = gl.getUniformLocation(p, "iTime");
-        gl.uniform1f(uID, iTime);
-        let attId = gl.getAttribLocation(p, "position");
-        gl.enableVertexAttribArray(attId);
+        gl.uniform1f(
+            gl.getUniformLocation(p, "iTime"),
+            iTime
+        );
+        if (uniforms.iResolution) {
+            gl.uniform2fv(
+                gl.getUniformLocation(p, "iResolution"),
+                uniforms.iResolution,
+            );
+        }
+        if (uniforms.iAspectRatio) {
+            gl.uniform1f(
+                gl.getUniformLocation(p, "iAspectRatio"),
+                uniforms.iAspectRatio,
+            );
+        }
+        // <-- extend further uniforms as required.
+
+        const attribLocation = gl.getAttribLocation(p, "position");
+        gl.enableVertexAttribArray(attribLocation);
         gl.bindBuffer(gl.ARRAY_BUFFER, shader.current.buffer.vertex);
-        gl.vertexAttribPointer(attId, 3, gl.FLOAT, false, 0, 0);
+        gl.vertexAttribPointer(attribLocation, 3, gl.FLOAT, false, 0, 0);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, shader.current.buffer.index);
         gl.drawElements(gl.TRIANGLE_STRIP, 4, gl.UNSIGNED_SHORT, 0);
-    }, [shader.current]);
+    }, [shader.current, uniforms]);
 
     useEffect(() => {
         /*
@@ -168,6 +234,7 @@ export const useShader = (fragShaderCode) => {
             }
             gl.clearColor(0.0, 0.0, 0.0, 1.0);
             gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+            // gl.viewport(0, 0, 300, 150);
             let error;
             [shader.current, error] = initShaderProgram(gl, initFragShader.current);
             shader.current.buffer = initBuffers(gl);
@@ -182,6 +249,13 @@ export const useShader = (fragShaderCode) => {
                 timeZero.current = now;
             }
             iTime = 0.001 * (now - timeZero.current);
+            if (loopSec !== null) {
+                if (loopSec === 0.) {
+                    iTime = 0.;
+                } else while (iTime > loopSec) {
+                    iTime -= loopSec;
+                }
+            }
             setTime(iTime);
 
             try {
@@ -204,25 +278,56 @@ export const useShader = (fragShaderCode) => {
                 restart();
             }
         }
-    }, [ref.current, render, restart]);
+    }, [ref.current, render, restart, loopSec]);
+
+    const fragmentShaderErrors = useMemo(() => {
+        const lines = error?.split('\n');
+        if (lines?.shift() !== "Fragment Shader Compiler Error: ") {
+            return [];
+        }
+        lines.shift();
+        const parsedErrors = [];
+        for (const line of lines) {
+            const match = line.match(errorRegex);
+            if (!match) {
+                continue;
+            }
+            parsedErrors.push({
+                line,
+                column: +match[1],
+                row: +match[2],
+                message: match[3]
+            });
+        }
+        return parsedErrors;
+    }, [error]);
 
     return {
         ref,
         time,
         compileFragmentShader,
-        error,
+        error: {
+            any: !!error,
+            raw: error,
+            fragmentShader: fragmentShaderErrors
+        },
         resetTimer,
         stop,
         compiledAt,
+        lastWorkingFragmentShader: shader.current.fragShaderCode,
+        uniforms,
+        setUniforms,
+        loopSec,
+        setLoopSec,
     };
 };
 
 function initBuffers(gl) {
     let vertices = new Float32Array([
         -1.0, -1.0, 0.0,
-        -1.0, 1.0, 0.0,
-        1.0, 1.0, 0.0,
-        1.0, -1.0, 0.0
+        -1.0, +1.0, 0.0,
+        +1.0, +1.0, 0.0,
+        +1.0, -1.0, 0.0
     ]);
     const vBuff = gl.createBuffer()
     gl.bindBuffer(gl.ARRAY_BUFFER, vBuff);
@@ -244,12 +349,7 @@ function initShaderProgram(gl, fragmentShader, currentObj) {
         prog: null,
     } : {
         ...currentObj,
-        fragShaderCode: fragmentShader,
     };
-
-    if (obj.prog) {
-        gl.detachShader(obj.prog, obj.frag);
-    }
 
     if (!obj.vert) {
         obj.vert = gl.createShader(gl.VERTEX_SHADER);
@@ -262,14 +362,19 @@ function initShaderProgram(gl, fragmentShader, currentObj) {
         }
     }
 
-    obj.frag = gl.createShader(gl.FRAGMENT_SHADER);
-    gl.shaderSource(obj.frag, obj.fragShaderCode);
-    gl.compileShader(obj.frag);
-    if (!gl.getShaderParameter(obj.frag, gl.COMPILE_STATUS)) {
-        error = "Fragment Shader Compiler Error: \n\n" + gl.getShaderInfoLog(obj.frag);
-        gl.deleteShader(obj.frag);
+    const frag = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(frag, fragmentShader);
+    gl.compileShader(frag);
+    if (!gl.getShaderParameter(frag, gl.COMPILE_STATUS)) {
+        error = "Fragment Shader Compiler Error: \n\n" + gl.getShaderInfoLog(frag);
+        gl.deleteShader(frag);
         return [obj, error];
     }
+    if (obj.prog) {
+        gl.detachShader(obj.prog, obj.frag);
+    }
+    obj.frag = frag;
+    obj.fragShaderCode = fragmentShader;
 
     obj.prog = gl.createProgram();
     gl.attachShader(obj.prog, obj.vert);
