@@ -9,17 +9,39 @@ const vec3 c = vec3(1.,0.,-1.);
 
 struct Ray { vec3 dir; vec3 origin; float factor; float n; vec3 normal; };
 
+struct Material { vec3 albedo; int type; float roughness; };
+
 float sm(in float d)
 {
     return smoothstep(1.5/iResolution.y, -1.5/iResolution.y, d);
 }
 
+uint baseHash( uvec2 p ) {
+    p = 1103515245U*((p >> 1U)^(p.yx));
+    uint h32 = 1103515245U*((p.x)^(p.y>>3U));
+    return h32^(h32 >> 16);
+}
+
+float hash1( inout float seed ) {
+    uint n = baseHash(floatBitsToUint(vec2(seed+=.1,seed+=.1)));
+    return float(n)/float(0xffffffffU);
+}
+
+vec2 hash2( inout float seed ) {
+    uint n = baseHash(floatBitsToUint(vec2(seed+=.1,seed+=.1)));
+    uvec2 rz = uvec2(n, n*48271U);
+    return vec2(rz.xy & uvec2(0x7fffffffU))/float(0x7fffffff);
+}
+
+#define MAT_LAMBERTIAN 1
+#define MAT_METAL 2
+#define MAT_DIELECTRIC 3
+
 #define MAX_DIST 1e8
 float sphereRadius = 0.25;
-vec3 spherePos = vec3(0., .25, 0.);
 
-float iSphere(inout Ray ray, in vec2 distBound) {
-    vec3 r = ray.origin - spherePos;
+float iSphere(inout Ray ray, in vec3 pos, in vec2 distBound) {
+    vec3 r = ray.origin - pos;
     float b = dot(r, ray.dir);
     float c = dot(r, r) - sphereRadius*sphereRadius;
     float h = b*b - c;
@@ -41,29 +63,30 @@ float iSphere(inout Ray ray, in vec2 distBound) {
     }
 }
 
-
-vec3 opU( vec3 d, float iResult, float mat ) {
-    return (iResult < d.y) ? vec3(d.x, iResult, mat) : d;
+vec3 updateIfClosest( vec3 d, float iResult, int mat ) {
+    return iResult < d.y ? vec3(d.x, iResult, float(mat)) : d;
 }
-
 
 vec3 findHit(inout Ray ray) {
     vec3 d = vec3(0.0001, 100, 0.);
+    vec3 spherePos = vec3(0.4, .25 + 0.03 * cos(iTime), 1.);
 
-    d = opU(d, iSphere(ray, d.xy), 3.);
+    d = updateIfClosest(d, iSphere(ray, spherePos, d.xy), MAT_LAMBERTIAN);
 
     // the result is used as:
-    // - d.z <= 0. means nothing is hit
-    // - d.y is the trace step length
+    // - d.z is the hit material (0 = nothing)
+    // - d.y is the hit distance
+    // - d.x is the minimum hit distance, is only kept because the [x,y] is updated as cursor
 
     return d;
 }
 
 vec3 sky(Ray ray) {
-    vec3 bg = 0.3*cos(iTime+ray.dir+vec3(2,0,4));
-    return bg;
+    vec3 bg = 0.2*cos(iTime+ray.dir+vec3(2,0,4));
+    // return bg;
 
-    vec3 col = mix(vec3(1),vec3(.5,.7,1), .5+.5*ray.dir.y);
+    vec3 col = bg;
+    col = mix(col,vec3(.5,.7,1), .5+.5*ray.dir.y);
     float sun = clamp(dot(normalize(vec3(-.4,.7,-.6)),ray.dir), 0., 1.);
     col += vec3(1,.6,.1)*(pow(sun,4.) + 10.*pow(sun,32.));
     return col;
@@ -84,6 +107,38 @@ void debugUv(inout vec3 col, in vec2 uv) {
     }
 }
 
+float gpuIndepentHash(float p) {
+    p = fract(p * .1031);
+    p *= p + 19.19;
+    p *= p + p;
+    return fract(p);
+}
+
+// iq palette
+vec3 pal(in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d) {
+    return a + b*cos(6.28318530718*(c*t+d));
+}
+
+void getMaterialProperties(in float matIndex, out Material mat) {
+    mat.albedo = pal(matIndex*.59996323+.5, vec3(.5),vec3(.5),vec3(1),vec3(0,.1,.2));
+    mat.type = int(matIndex);
+    mat.roughness = (1.-matIndex*.475); // * gpuIndepentHash(27. * mat);
+}
+
+int number_of_reflection_paths = 3;
+
+vec3 cosWeightedRandomHemisphereDirection( const vec3 n, inout float seed ) {
+    vec2 r = hash2(seed);
+    vec3  uu = normalize(cross(n, abs(n.y) > .5 ? vec3(1.,0.,0.) : vec3(0.,1.,0.)));
+    vec3  vv = cross(uu, n);
+    float ra = sqrt(r.y);
+    float rx = ra*cos(6.28318530718*r.x);
+    float ry = ra*sin(6.28318530718*r.x);
+    float rz = sqrt(1.-r.y);
+    vec3  rr = vec3(rx*uu + ry*vv + rz*n);
+    return normalize(rr);
+}
+
 void render(inout vec3 col, in vec2 uv) {
     vec3 cameraPosition = vec3(0., 0., -1.);
     Ray ray;
@@ -92,17 +147,19 @@ void render(inout vec3 col, in vec2 uv) {
     ray.factor = 1.;
     ray.n = 1.;
     ray.normal = vec3(0.);
+    Material material;
+    float seed = 0.002;
 
-    for (int p = 0; p < 12; ++p)
+    for (int p = 0; p < number_of_reflection_paths; ++p)
     {
         vec3 hit = findHit(ray);
         if (hit.z > 0.) {
             // we hit!
             ray.origin += ray.dir * hit.y;
-
-            col *= vec3(1., 0.5, 0.5);
-            // TODO: remove that for moar itorationiz0rs
-            return;
+            getMaterialProperties(hit.z, material);
+            col *= material.albedo;
+            ray.dir = cosWeightedRandomHemisphereDirection(ray.normal, seed);
+            // col = vec3(1., 0.5, 0.9);
 
         } else {
             col *= sky(ray);
@@ -122,8 +179,6 @@ void main()
     vec3 col = vec3(1.);
 
     render(col, uv);
-
-    debugUv(col, uv);
 
     // Output to screen
     FragColor = vec4(col,1.0);
