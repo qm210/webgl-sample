@@ -5,7 +5,13 @@ import glsl from 'vite-plugin-glsl';
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
-      preact(),
-      glsl(),
+      preact({
+          babel: {
+              plugins: ["@emotion/babel-plugin"]
+          }
+      }),
+      glsl({
+          compress: false
+      }),
   ],
 })

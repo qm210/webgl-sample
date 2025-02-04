@@ -1,4 +1,5 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from "preact/hooks";
+import {buildFunctionLinks} from "./buildFunctionLinks.jsx";
 
 const USE_WEBGL_2 = true;
 
@@ -43,7 +44,6 @@ export const useShader = (fragShaderCode) => {
     const glRef = useRef();
     const [time, setTime] = useState(0);
     const [error, setError] = useState(null);
-    const [compiledAt, setCompiledAt] = useState(null);
     const shader = useRef({
         vert: null,
         frag: null,
@@ -65,6 +65,12 @@ export const useShader = (fragShaderCode) => {
     const running = useRef(true);
     const animationRef = useRef();
 
+    // about the current fragment shader
+    const [working, setWorking] = useState({
+        shader: null,
+        compiledAt: null,
+    });
+
     const resetTimer = useCallback(() => {
         timeZero.current = undefined;
     }, []);
@@ -84,7 +90,10 @@ export const useShader = (fragShaderCode) => {
             initShaderProgram(glRef.current, newFragmentShader, shader.current);
         if (shaderObj.prog && !error) {
             shader.current = shaderObj;
-            setCompiledAt(Date.now());
+            setWorking({
+                shader: shaderObj.fragShaderCode,
+                compiledAt: Date.now()
+            });
         }
         setError(error);
     }, [resetTimer]);
@@ -145,89 +154,10 @@ export const useShader = (fragShaderCode) => {
     }, [shader.current, uniforms]);
 
     useEffect(() => {
-        /*
-        gl.clearColor(0, 0, 0, 1);
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-        const vsSource = `
-            attribute vec3 aPosition;
-            void main() {
-                gl_Position = vec4(aPosition, 1.0);
-            }
-        `;
-        const fsSource = fragmentCode.value;
-
-        // Compile vertex shader
-        const vertexShader = gl.createShader(gl.VERTEX_SHADER);
-        gl.shaderSource(vertexShader, vsSource);
-        gl.compileShader(vertexShader);
-        if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
-            console.error('Error compiling vertex shader:', gl.getShaderInfoLog(vertexShader));
-            return;
-        }
-
-        // Compile fragment shader
-        const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
-        gl.shaderSource(fragmentShader, fsSource);
-        gl.compileShader(fragmentShader);
-        if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
-            console.error('Error compiling fragment shader:', gl.getShaderInfoLog(fragmentShader));
-            return;
-        }
-
-        // Create program
-        const program = gl.createProgram();
-        gl.attachShader(program, vertexShader);
-        gl.attachShader(program, fragmentShader);
-        gl.linkProgram(program);
-        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-            console.error('Error linking shader program:', gl.getProgramInfoLog(program));
-            return;
-        }
-
-        const positionAttributeLocation = gl.getAttribLocation(program, 'aPosition');
-        // Set up position attribute
-        gl.enableVertexAttribArray(positionAttributeLocation);
-
-        // Create buffer for positions and indices
-        const positionBuffer = gl.createBuffer();
-        const indexBuffer = gl.createBuffer();
-
-        // Fill buffer with data
-        const positions = new Float32Array(
-            [
-                -1.0, -1.0, 0.0,
-                -1.0, 1.0, 0.0,
-                1.0, 1.0, 0.0,
-                1.0, -1.0, 0.0
-            ]
-        );
-        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
-
-        const indices = new Uint16Array(
-            [0, 1, 3, 2]
-        );
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
-        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
-
-        // Tell WebGL how to pull out the positions from the buffer into the shader
-        gl.vertexAttribPointer(
-            positionAttributeLocation,     // The attribute whose value we want to compute
-            2,                             // Size of each component per color
-            gl.FLOAT,                     // Data type of the buffer array
-            false,                         // Normalize the data?
-            0,                             // Stride (how many bytes between consecutive values)
-            null                           // Offset of the first element (in array if multiple)
-        );
-
-        // now the actual application to the document
-        gl.viewport(0, 0, canvas.width, canvas.height);
-         */
-
         let iTime;
 
         function initWebGL(gl) {
+            console.log("INIT WEB GL", gl);
             if (!gl) {
                 alert("Unable to initialize WebGL. Your browser may not support it.");
                 return;
@@ -277,44 +207,53 @@ export const useShader = (fragShaderCode) => {
                 cancelAnimationFrame(animationRef.current);
                 restart();
             }
+
+            // console.log("trying to lose Context...");
+            // glRef.current?.getExtension("WEBGL_lose_context")?.loseContext();
         }
     }, [ref.current, render, restart, loopSec]);
 
-    const fragmentShaderErrors = useMemo(() => {
+    const shaderError = useMemo(() => {
         const lines = error?.split('\n');
-        if (lines?.shift() !== "Fragment Shader Compiler Error: ") {
-            return [];
+        const result = {
+            raw: error,
+            title: lines?.shift().trim(),
+            errors: [],
+        }
+        if (result.title !== "Fragment Shader Compiler Error:") {
+            return result;
         }
         lines.shift();
-        const parsedErrors = [];
         for (const line of lines) {
             const match = line.match(errorRegex);
             if (!match) {
                 continue;
             }
-            parsedErrors.push({
+            result.errors.push({
                 line,
                 column: +match[1],
                 row: +match[2],
                 message: match[3]
             });
         }
-        return parsedErrors;
+        return result;
     }, [error]);
+
+    const derived = useMemo(() => {
+        return {
+            methods: buildFunctionLinks(working.shader)
+        };
+    }, [working]);
 
     return {
         ref,
         time,
         compileFragmentShader,
-        error: {
-            any: !!error,
-            raw: error,
-            fragmentShader: fragmentShaderErrors
-        },
+        error: shaderError,
         resetTimer,
         stop,
-        compiledAt,
-        lastWorkingFragmentShader: shader.current.fragShaderCode,
+        working,
+        derived,
         uniforms,
         setUniforms,
         loopSec,
@@ -323,6 +262,7 @@ export const useShader = (fragShaderCode) => {
 };
 
 function initBuffers(gl) {
+    console.log("INIT BUFFERS CALLED");
     let vertices = new Float32Array([
         -1.0, -1.0, 0.0,
         -1.0, +1.0, 0.0,
@@ -352,6 +292,7 @@ function initShaderProgram(gl, fragmentShader, currentObj) {
     };
 
     if (!obj.vert) {
+        console.log("CREATE NEW VERTEX SHADER")
         obj.vert = gl.createShader(gl.VERTEX_SHADER);
         gl.shaderSource(obj.vert, obj.vertShaderCode);
         gl.compileShader(obj.vert);
@@ -362,6 +303,7 @@ function initShaderProgram(gl, fragmentShader, currentObj) {
         }
     }
 
+    console.log("CREATE NEW FRAGMENT SHADER")
     const frag = gl.createShader(gl.FRAGMENT_SHADER);
     gl.shaderSource(frag, fragmentShader);
     gl.compileShader(frag);
@@ -370,22 +312,27 @@ function initShaderProgram(gl, fragmentShader, currentObj) {
         gl.deleteShader(frag);
         return [obj, error];
     }
-    if (obj.prog) {
+    if (obj.prog && obj.frag) {
+        console.log("-- DETACH & DELETE FRAGMENT SHADER");
         gl.detachShader(obj.prog, obj.frag);
+        gl.deleteShader(obj.frag);
     }
     obj.frag = frag;
     obj.fragShaderCode = fragmentShader;
 
+    if (obj.prog) {
+        console.log("-- DELETE SHADER PROGRAM")
+        gl.deleteProgram(obj.prog);
+    }
+    console.log("--> CREATE NEW PROGRAM")
     obj.prog = gl.createProgram();
     gl.attachShader(obj.prog, obj.vert);
     gl.attachShader(obj.prog, obj.frag);
     gl.linkProgram(obj.prog);
     if (!gl.getProgramParameter(obj.prog, gl.LINK_STATUS)) {
         error = "Shader Linking Error: " + gl.getProgramInfoLog(obj.prog);
-    }
-
-    if (!!currentObj) {
-        gl.deleteProgram(currentObj.prog);
+        gl.deleteProgram(obj.prog);
+        obj.prog = null;
     }
 
     return [obj, error];
