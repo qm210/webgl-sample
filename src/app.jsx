@@ -1,7 +1,7 @@
 import './app.css';
 import {FirstSample} from "./pages/FirstSample.jsx";
 import {ErrorBoundary, LocationProvider, Route, Router} from "preact-iso";
-import {MainLayout} from "./pages/MainLayout.jsx";
+import {MainApp} from "./pages/MainApp.jsx";
 
 export const App = () => (
     <LocationProvider>
@@ -11,7 +11,11 @@ export const App = () => (
                     path={"/first"}
                     component={FirstSample}
                 />
-                <MainLayout default/>
+                <Route
+                    path={"/:shaderId"}
+                    component={MainApp}
+                />
+                <MainApp default/>
             </Router>
         </ErrorBoundary>
     </LocationProvider>

@@ -4,5 +4,32 @@
   width: 100%;
   height: 100%;
   text-align: center;
+  overflow: hidden;
 }
 
+.loading {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  user-select: none;
+}
+
+.wave {
+  animation: funny-wave 1s ease-in-out infinite;
+  --amplitude: 0.5rem;
+}
+
+.resize-wave {
+  animation: funny-resize-wave 1s ease-in-out infinite;
+  --factor: 2;
+}
+
+@keyframes funny-wave {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(var(--amplitude)); }
+}
+
+@keyframes funny-resize-wave {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(var(--factor)); }
+}

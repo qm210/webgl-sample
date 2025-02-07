@@ -1,4 +1,4 @@
-import {MainLayout} from "./MainLayout.jsx";
+import {MainLayout} from "./MainApp.jsx";
 import someShader from "../shaders/sample.glsl";
 
 const storageKey = "qm.shader.first";
@@ -8,7 +8,7 @@ export const FirstSample = () => {
 
     return (
         <MainLayout
-            initialShader={someShader}
+            initialShader={initialShader}
             storageKey={"qm.shader.first"}
         />
     );
