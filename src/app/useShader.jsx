@@ -64,6 +64,12 @@ export const useShader = (fragShaderCode) => {
     const timeZero = useRef();
     const running = useRef(true);
     const animationRef = useRef();
+    const perfMeasure = useRef({
+        cycles: 1000,
+        cursor: 0,
+        start: null,
+        end: null
+    });
 
     // about the current fragment shader
     const [working, setWorking] = useState({
@@ -188,11 +194,29 @@ export const useShader = (fragShaderCode) => {
             }
             setTime(iTime);
 
+            if (perfMeasure.current.start === null) {
+                perfMeasure.current.start = performance.now();
+                perfMeasure.current.cursor = perfMeasure.current.cycles;
+            } else if (perfMeasure.current.cursor > 0) {
+                perfMeasure.current.cursor -= 1;
+            }
+
             try {
                 render(glRef.current, iTime);
                 animationRef.current = requestAnimationFrame(runLoop);
             } catch(err) {
                 console.error("Render error", err);
+            }
+
+            if (perfMeasure.current.cursor === 0) {
+                perfMeasure.current.end = performance.now();
+                perfMeasure.current.cursor -= 1;
+                console.log(
+                    "[PERFORMANCE MEASUREMENT], cycles: ",
+                    perfMeasure.current.cycles,
+                    "took seconds: ",
+                    0.001 * (perfMeasure.current.end - perfMeasure.current.start)
+                );
             }
         }
 

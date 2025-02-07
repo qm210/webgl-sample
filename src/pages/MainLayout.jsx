@@ -4,6 +4,7 @@ import AceEditor from "react-ace";
 import {useShader} from "../app/useShader.jsx";
 import {useGlobalKeyPresses} from "../app/useGlobalKeyPresses.jsx";
 import baseShader from "../shaders/raytracing.glsl";
+import testShader from "../shaders/testing.glsl";
 import {useSignal} from "@preact/signals";
 
 import "ace-builds/src-noconflict/mode-glsl";
@@ -11,7 +12,9 @@ import "ace-builds/src-noconflict/ext-language_tools"
 
 const shaderKey = "qm.shader";
 
-const sampleShader = baseShader.trim();
+const testing = window.location.search.includes("testing");
+
+const sampleShader = (testing ? testShader : baseShader).trim();
 const storedShader = localStorage.getItem(shaderKey) ?? sampleShader;
 
 const fontSize = new URLSearchParams(location.search).get("fontsize") ?? "10pt";

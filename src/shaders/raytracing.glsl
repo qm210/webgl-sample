@@ -171,6 +171,14 @@ vec3 updateIfClosest( vec3 d, float iResult, int mat ) {
 const int nSpheres = 9;
 int number_of_reflection_paths = 20;
 
+float maxcomp(vec3 v) {
+    return v.x >= v.y && v.x >= v.z
+            ? v.x
+            : v.y >= v.z
+            ? v.y
+            : v.z;
+}
+
 vec3 findHit(inout Ray ray) {
     vec3 d = vec3(0.0001, 100, 0.);
 
@@ -194,11 +202,22 @@ vec3 findHit(inout Ray ray) {
         d = updateIfClosest(d, iSphere(ray, spherePos, sphereRadius, d.xy), MAT_LAMBERTIAN);
     }
 
+    float iBox = 0.;
+    vec3 posBox = vec3(0, 0, 4);
+    float tBox = dot(ray.dir, (posBox - ray.origin));
+//    if (tBox > -0.5) {
+//        d.y = tBox;
+//        d.z = 3.;
+//    }
+//    else if (tBox > 0.5) {
+//        d.y = tBox;
+//        d.z = 4.;
+//    }
+
     /// the result is used as:
     /// - d.z is the hit material (0 = nothing)
     /// - d.y is the hit distance
     /// - d.x is the minimum hit distance, is only kept because the [x,y] is updated as cursor
-
     return d;
 }
 
