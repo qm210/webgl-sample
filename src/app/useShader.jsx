@@ -19,6 +19,7 @@ const getContext = (canvas) => {
     if (USE_WEBGL_2) {
         context = canvas.getContext('webgl2');
         if (context) {
+            console.log("[GL] Using WEBGL2");
             return context;
         } else {
             console.warn("You don't support WebGL2, trying WebGL1...");
@@ -61,6 +62,8 @@ export const useShader = (fragShaderCode) => {
         buffer: {
             vertex: null,
             index: null,
+            fboPing: null,
+            fboPong: null,
         },
     });
     const [uniforms, setUniforms] = useState({
@@ -138,12 +141,24 @@ export const useShader = (fragShaderCode) => {
         ref.current.height = rect.height;
     }, []);
 
+    /* RENDER LOOP */
     const render = useCallback((gl, iTime) => {
         const p = shader.current.prog;
         if (!p) {
             return;
         }
+        // IMPORTANT: first useProgram() before you can use the program ;) make sense, yes. but is important.
         gl.useProgram(p);
+
+        // preparing FBO Ping-Pong
+        const fbo1 = shader.current.buffer.fboPing;
+        const fbo2 = shader.current.buffer.fboPong;
+        // TODO: BIGGEST QUESTION MARK (ask nr4 the shader magician) - why does this break the thing?
+        // gl.bindFramebuffer(gl.FRAMEBUFFER, fbo1.fbo);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, fbo2.texture);
+
+        // Pass the uniforms ...
         gl.uniform1f(
             gl.getUniformLocation(p, "iTime"),
             iTime
@@ -160,14 +175,26 @@ export const useShader = (fragShaderCode) => {
                 uniforms.iAspectRatio,
             );
         }
-        // <-- extend further uniforms as required.
+        // <-- ... extend further uniforms as required. ...
+
+        // ... and also the FBO-Ping-Pong Texture
+        gl.uniform1i(
+            gl.getUniformLocation(p, "previousFrame"),
+            0
+        );
 
         const attribLocation = gl.getAttribLocation(p, "position");
         gl.enableVertexAttribArray(attribLocation);
         gl.bindBuffer(gl.ARRAY_BUFFER, shader.current.buffer.vertex);
         gl.vertexAttribPointer(attribLocation, 3, gl.FLOAT, false, 0, 0);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, shader.current.buffer.index);
+
+        // This is the core: we actually draw \o/
         gl.drawElements(gl.TRIANGLE_STRIP, 4, gl.UNSIGNED_SHORT, 0);
+
+        // Do the FBO Ping-Pong-Switcheroo :)
+        shader.current.buffer.fboPing = fbo2;
+        shader.current.buffer.fboPong = fbo1;
     }, [shader.current, uniforms]);
 
     useEffect(() => {
@@ -313,7 +340,15 @@ function initBuffers(gl) {
     const iBuff = gl.createBuffer();
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, iBuff);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
-    return {vertex: vBuff, index: iBuff};
+
+    // for FBO Ping-Pong -- could have an array with just two fbo instances, but maybe this makes the poing clearer.. .
+    const fboPing = createFBO(gl);
+    const fboPong = createFBO(gl);
+    // QUESTion:
+    // what is depth buffer support, why use?
+    // what is the depth buffer internal format, why DEPTH_COMPONENT24 ?
+
+    return {vertex: vBuff, index: iBuff, fboPing, fboPong};
 }
 
 function initShaderProgram(gl, fragmentShader, currentObj) {
@@ -373,4 +408,50 @@ function initShaderProgram(gl, fragmentShader, currentObj) {
     }
 
     return [obj, error];
+}
+
+function createFBO(gl, withDepthBuffer=true) {
+    const width = gl.drawingBufferWidth;
+    const height = gl.drawingBufferHeight;
+
+    // they say it is better with depth - TODO - find out why / compare. :)
+
+    const fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+
+    // QUESTions:
+    // ... all these constants / parameters? what are teh options of se meeeaninginging???
+    // play around: how can this fuck it up?
+
+    // QUESTion: what is "DEPTH"?
+    let depthBuffer = null;
+    if (withDepthBuffer) {
+        depthBuffer = gl.createRenderbuffer();
+        const depthInternalFormat = gl.DEPTH_COMPONENT24;
+        gl.bindRenderbuffer(gl.RENDERBUFFER, depthBuffer);
+        gl.renderbufferStorage(gl.RENDERBUFFER, depthInternalFormat, width, height);
+        gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depthBuffer);
+    }
+
+    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    if (status !== gl.FRAMEBUFFER_COMPLETE) {
+        console.error("[GL][CREATE_FBO] not complete:", status);
+    }
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return {
+        fbo,
+        texture,
+        depthBuffer
+    };
 }

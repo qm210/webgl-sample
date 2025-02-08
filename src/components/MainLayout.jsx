@@ -16,6 +16,12 @@ export const currentMethod = signal(null);
 export const options = signal({
     noStorage: true
 });
+const toggleOption = (key) => {
+    options.value = {
+        ...options.value,
+        [key]: !options.value[key]
+    };
+};
 
 export const MainLayout = ({
                                initialShader = baseShader,
@@ -93,10 +99,9 @@ export const MainLayout = ({
                 onApply={() => compileFragmentShader(shader)}
                 onStop={stop}
                 onReset={reset}
-                onToggleStorage={() =>
-                  setOptions(o => ({
-                      ...o, noStorage: !o.noStorage,
-                  }))}
+                onToggleStorage={() => {
+                    toggleOption("noStorage");
+                }}
                 onSaveToFile={() => saveToFile(working.shader)}
             />
             <div className={"canvas-container"}>
@@ -137,15 +142,9 @@ const Main = styled.div`
     align-items: stretch;
     gap: 0.5rem;
     padding: 0 0.5rem;
+    height: 100vh;
     
-    & div.editor-frame {
-        padding: 4px;
-        box-shadow: 2px 2px 6px #2224 inset;
-        height: 90vh;
-        border: 1px solid #ddd;
-    }
-    
-    & div.canvas-container, div.editor-container {
+    & div.canvas-container {
         flex: 1;
     }
     
@@ -221,8 +220,21 @@ const Main = styled.div`
         border: 1px solid #ddda;
         box-shadow: 1px 1px 2px #ddd4;
         padding: 0.5rem;
+        margin: 0.25rem;
+        gap: 0.25rem;
     }
+    
+    .error-grid {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        cursor: pointer;
+        margin-top: 0.5rem;
 
+        & > div:nth-of-type(2n+1) {
+            padding-right: 0.5rem;
+        }
+    }
+    
     input {
         padding: 0.25rem;
         font-size: larger;

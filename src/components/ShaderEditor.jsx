@@ -2,8 +2,11 @@ import AceEditor from "react-ace";
 import {fontSize} from "../app/globals.js";
 import {signal} from "@preact/signals";
 import {currentMethod, options} from "./MainLayout.jsx";
+import styled from "@emotion/styled";
+
 
 const aceRef = signal(null);
+
 export const ace = () => aceRef.value?.editor;
 
 export const ShaderEditor = ({
@@ -25,7 +28,7 @@ export const ShaderEditor = ({
     };
 
     return (
-        <div className={"editor-container"}>
+        <EditorContainer>
             <div className={"editor-frame"}>
                 <AceEditor
                     ref={(ref) => {
@@ -64,7 +67,7 @@ export const ShaderEditor = ({
                     onCursorChange={onCursorChange}
                 />
             </div>
-            <div className={"flex-row"} style={{marginTop: "0.5rem"}}>
+            <div className={"flex-row"}>
                 <button
                     onClick={onApply}
                 >
@@ -100,6 +103,21 @@ export const ShaderEditor = ({
                     Save Textfile (the running one)
                 </button>
             </div>
-        </div>
+        </EditorContainer>
     );
 };
+
+const EditorContainer = styled.div`
+    flex: 1;
+    
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    
+    & div.editor-frame {
+        flex: 1;
+        padding: 4px;
+        box-shadow: 2px 2px 6px #2224 inset;
+        border: 1px solid #ddd;
+    }
+`;

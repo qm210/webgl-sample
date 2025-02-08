@@ -5,7 +5,7 @@ import {useLocation, useRoute} from "preact-iso";
 import "ace-builds/src-noconflict/mode-glsl";
 import "ace-builds/src-noconflict/ext-language_tools"
 import {shaderKeyBase} from "../app/globals.js";
-import {MainLayout} from "./MainLayout.jsx";
+import {MainLayout, options} from "./MainLayout.jsx";
 
 
 export const ShaderLoader = () => {
@@ -30,24 +30,34 @@ export const ShaderLoader = () => {
             }
             try {
                 const module = await import(`../shaders/${name}.glsl`);
-                result.initShader = module.default || module;
+                result.initShader = module.default;
                 result.shaderKey = [shaderKeyBase, name].join('.');
             } catch (error) {
                 console.error("Cannot load shader with name:", name, error);
                 result.error = error;
             }
             return result;
-        }
+        };
 
-        loadShader(route.params.shaderId)
+        const name = route.params.shaderId;
+        loadShader(name)
             .then((result) => {
                 if (result.error) {
+                    document.title = "QMs GFX: invalid name";
                     location.route('/');
                     return;
                 }
-                const storedVersion = localStorage.getItem(result.shaderKey);
-                if (storedVersion) {
-                    result.initShader = storedVersion;
+                let storedVersion;
+                if (!options.value.noStorage) {
+                    storedVersion = localStorage.getItem(result.shaderKey);
+                    if (storedVersion) {
+                        result.initShader = storedVersion;
+                    }
+                }
+                if (name) {
+                    document.title = `QMs GFX: ${name}.glsl` + (
+                        storedVersion ? '*' : ''
+                    );
                 }
                 setState(state => ({
                     ...state,

@@ -4,6 +4,7 @@ precision highp float;
 out vec4 FragColor;
 uniform float iTime;
 uniform vec2 iResolution;
+uniform sampler2D previousFrame;
 
 const vec3 c = vec3(1.,0.,-1.);
 const float TAU = 6.28318530718;
@@ -224,7 +225,7 @@ void main()
     // Normalized pixel coordinates (from 0 to 1)
     vec2 uv = (gl_FragCoord.xy)/iResolution.y - vec2(1., 0.5);
 
-    vec4 previous = texture2D(prevFrame, uv);
+    vec4 previous = texture(previousFrame, uv);
 
     // start with one and then can mulitply to durken -> awesome, I guess?
     vec3 col = vec3(1.);
