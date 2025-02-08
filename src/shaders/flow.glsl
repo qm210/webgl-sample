@@ -41,88 +41,6 @@ vec3 hash3( inout float seed ) {
     return vec3(rz.xyz & uvec3(0x7fffffffU))/float(0x7fffffff);
 }
 
-/// worley noise after https://github.com/ashima/webgl-noise/blob/master/src/cellular2x2x2.glsl
-
-// Modulo 289 without a division (only multiplications)
-vec3 mod289(vec3 x) {
-    return x - floor(x * (1.0 / 289.0)) * 289.0;
-}
-
-vec4 mod289(vec4 x) {
-    return x - floor(x * (1.0 / 289.0)) * 289.0;
-}
-
-// Modulo 7 without a division
-vec4 mod7(vec4 x) {
-    return x - floor(x * (1.0 / 7.0)) * 7.0;
-}
-
-// Permutation polynomial: (34x^2 + 6x) mod 289
-vec3 permute(vec3 x) {
-    return mod289((34.0 * x + 10.0) * x);
-}
-
-vec4 permute(vec4 x) {
-    return mod289((34.0 * x + 10.0) * x);
-}
-
-// Cellular noise, returning F1 and F2 in a vec2.
-// Speeded up by using 2x2x2 search window instead of 3x3x3,
-// at the expense of some pattern artifacts.
-// F2 is often wrong and has sharp discontinuities.
-// If you need a good F2, use the slower 3x3x3 version.
-vec2 cellular2x2x2(vec3 P) {
-    #define K 0.142857142857 // 1/7
-#define Ko 0.428571428571 // 1/2-K/2
-#define K2 0.020408163265306 // 1/(7*7)
-#define Kz 0.166666666667 // 1/6
-#define Kzo 0.416666666667 // 1/2-1/6*2
-#define jitter 0.8 // smaller jitter gives less errors in F2
-	vec3 Pi = mod289(floor(P));
-    vec3 Pf = fract(P);
-    vec4 Pfx = Pf.x + vec4(0.0, -1.0, 0.0, -1.0);
-    vec4 Pfy = Pf.y + vec4(0.0, 0.0, -1.0, -1.0);
-    vec4 p = permute(Pi.x + vec4(0.0, 1.0, 0.0, 1.0));
-    p = permute(p + Pi.y + vec4(0.0, 0.0, 1.0, 1.0));
-    vec4 p1 = permute(p + Pi.z); // z+0
-    vec4 p2 = permute(p + Pi.z + vec4(1.0)); // z+1
-    vec4 ox1 = fract(p1*K) - Ko;
-    vec4 oy1 = mod7(floor(p1*K))*K - Ko;
-    vec4 oz1 = floor(p1*K2)*Kz - Kzo; // p1 < 289 guaranteed
-    vec4 ox2 = fract(p2*K) - Ko;
-    vec4 oy2 = mod7(floor(p2*K))*K - Ko;
-    vec4 oz2 = floor(p2*K2)*Kz - Kzo;
-    vec4 dx1 = Pfx + jitter*ox1;
-    vec4 dy1 = Pfy + jitter*oy1;
-    vec4 dz1 = Pf.z + jitter*oz1;
-    vec4 dx2 = Pfx + jitter*ox2;
-    vec4 dy2 = Pfy + jitter*oy2;
-    vec4 dz2 = Pf.z - 1.0 + jitter*oz2;
-    vec4 d1 = dx1 * dx1 + dy1 * dy1 + dz1 * dz1; // z+0
-    vec4 d2 = dx2 * dx2 + dy2 * dy2 + dz2 * dz2; // z+1
-
-    // Sort out the two smallest distances (F1, F2)
-    #if 0
-	// Cheat and sort out only F1
-    d1 = min(d1, d2);
-    d1.xy = min(d1.xy, d1.wz);
-    d1.x = min(d1.x, d1.y);
-    return vec2(sqrt(d1.x));
-    #else
-	// Do it right and sort out both F1 and F2
-    vec4 d = min(d1,d2); // F1 is now in d
-    d2 = max(d1,d2); // Make sure we keep all candidates for F2
-    d.xy = (d.x < d.y) ? d.xy : d.yx; // Swap smallest to d.x
-    d.xz = (d.x < d.z) ? d.xz : d.zx;
-    d.xw = (d.x < d.w) ? d.xw : d.wx; // F1 is now in d.x
-    d.yzw = min(d.yzw, d2.yzw); // F2 now not in d2.yzw
-    d.y = min(d.y, d.z); // nor in d.z
-    d.y = min(d.y, d.w); // nor in d.w
-    d.y = min(d.y, d2.x); // F2 is now in d.y
-    return sqrt(d.xy); // F1 and F2
-    #endif
-}
-
 /// lessons:
 /// cleanup functions -> Out of Memory
 /// hashes!
@@ -251,65 +169,53 @@ void debugUv(inout vec3 col, in vec2 uv) {
     }
 }
 
-float gpuIndepentHash(float p) {
+float gpuIndependentHash(float p) {
     p = fract(p * .1031);
     p *= p + 19.19;
     p *= p + p;
     return fract(p);
 }
 
-// iq palette
-vec3 pal(in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d) {
-    return a + b*cos(TAU*(c*t+d));
+vec2 randomPos(in float seed) {
+    float s = seed;
+    return vec2(
+        2. * hash1(s) - 1.,
+        hash1(s) - 0.5
+    );
 }
 
-void getMaterialProperties(in float matIndex, out Material mat) {
-    mat.albedo = pal(matIndex*.59996323+.5, vec3(.5),vec3(.5),vec3(1),vec3(0,.1,.2));
-    mat.type = int(matIndex);
-    mat.roughness = (1.-matIndex*.475); // * gpuIndepentHash(27. * mat);
-}
+float rndSeed = 0.1;
+#define RND_STEP .2
 
-vec3 cosWeightedRandomHemisphereDirection( const vec3 n, inout float seed ) {
-    vec2 r = hash2(seed);
-    /// vec3  uu = normalize(cross(n, abs(n.z) < .5 ? vec3(1.,0.,0.) : vec3(0.,1.,0.)));
-    vec3  uu = normalize(cross(n, vec3(0.,1.,0.)));
-    vec3  vv = cross(uu, n);
-    float ra = sqrt(r.y);
-    float rx = ra*cos(TAU*r.x);
-    float ry = ra*sin(TAU*r.x);
-    float rz = sqrt(1.-r.y);
-    vec3  rr = vec3(rx*uu + ry*vv + rz*n);
-    return normalize(rr);
-}
+void randomCircles(inout vec3 col, in vec2 uv) {
+    float lifeSeconds = 0.5;
+    float spawnInterval = 2.;
+    bool alive = false;
+    vec2 pos;
+    float radius = 0.02;
 
-void render(inout vec3 col, in vec2 uv) {
-    vec3 cameraPosition = vec3(0., 0., -1.);
-    Ray ray;
-    ray.origin = cameraPosition;
-    ray.dir = normalize(vec3(ray.origin.xy + uv, 0.) - ray.origin);
-    ray.factor = 1.;
-    ray.n = 1.;
-    ray.normal = vec3(0.);
-    Material material;
-    float seed = 0.002;
+    float lifetime = mod(iTime, spawnInterval);
+    rndSeed += RND_STEP * floor(iTime / spawnInterval);
 
-    for (int p = 0; p < number_of_reflection_paths; ++p)
-    {
-        vec3 hit = findHit(ray);
-        if (hit.z > 0.) {
-            // we hit!
-            ray.origin += ray.dir * hit.y;
-            getMaterialProperties(hit.z, material);
-            col *= material.albedo;
-            ray.dir = cosWeightedRandomHemisphereDirection(ray.normal, seed);
-            // col = vec3(1., 0.5, 0.9);
+    if (lifetime < lifeSeconds) {
+        pos = randomPos(rndSeed);
+        alive = true;
+    } else if (alive) {
+        rndSeed += 1.;
+        alive = false;
+    }
 
-        } else {
-            col *= sky(ray);
-            return;
+    col = c.yyy;
+    if (alive) {
+        if (distance(uv, pos) <= radius) {
+            col = vec3(1.);
         }
     }
-    return;
+
+    // debugging the coordinates, maybe I'm the doodoo here
+    if (distance(uv, vec2(1., 0.5)) < radius) {
+        col = vec3(0,0,1);
+    }
 }
 
 //void mainImage( out vec4 fragColor, in vec2 fragCoord )
@@ -318,10 +224,12 @@ void main()
     // Normalized pixel coordinates (from 0 to 1)
     vec2 uv = (gl_FragCoord.xy)/iResolution.y - vec2(1., 0.5);
 
+    vec4 previous = texture2D(prevFrame, uv);
+
     // start with one and then can mulitply to durken -> awesome, I guess?
     vec3 col = vec3(1.);
 
-    render(col, uv);
+    randomCircles(col, uv);
 
     // Output to screen
     FragColor = vec4(col,1.0);

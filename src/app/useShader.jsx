@@ -3,6 +3,14 @@ import {buildFunctionLinks} from "./buildFunctionLinks.jsx";
 
 const USE_WEBGL_2 = true;
 
+const DEBUG_VERBOSE = true;
+const DEBUG_GL_VERBOSE = false;
+
+const consoleLog = (...args) => DEBUG_VERBOSE && console.log("[DEBUG]", ...args);
+const consoleIfError = (error) => DEBUG_VERBOSE && error && console.error(error);
+const glConsoleLog = (...args) => DEBUG_GL_VERBOSE && console.log("[DEBUG][GL]", ...args);
+const glConsoleIfError = (error) => DEBUG_VERBOSE && error && console.error(error);
+
 const getContext = (canvas) => {
     // hint: getContext() also takes params like e.g.
     // { alpha: true, depth: false, stencil: false, antialias: false, preserveDrawingBuffer: false };
@@ -94,6 +102,9 @@ export const useShader = (fragShaderCode) => {
     const compileFragmentShader = useCallback((newFragmentShader) => {
         const [shaderObj, error] =
             initShaderProgram(glRef.current, newFragmentShader, shader.current);
+        consoleLog("Compiled.", shaderObj);
+        consoleIfError(error);
+
         if (shaderObj.prog && !error) {
             shader.current = shaderObj;
             setWorking({
@@ -163,7 +174,7 @@ export const useShader = (fragShaderCode) => {
         let iTime;
 
         function initWebGL(gl) {
-            console.log("INIT WEB GL", gl);
+            glConsoleLog("INIT WEB GL", gl);
             if (!gl) {
                 alert("Unable to initialize WebGL. Your browser may not support it.");
                 return;
@@ -263,7 +274,9 @@ export const useShader = (fragShaderCode) => {
         return result;
     }, [error]);
 
-    const derived = useMemo(() => {
+    const analyzed = useMemo(() => {
+        const methods = buildFunctionLinks(working.shader);
+        consoleLog("Analyzed Methods:", methods);
         return {
             methods: buildFunctionLinks(working.shader)
         };
@@ -277,7 +290,7 @@ export const useShader = (fragShaderCode) => {
         resetTimer,
         stop,
         working,
-        derived,
+        analyzed,
         uniforms,
         setUniforms,
         loopSec,
@@ -286,7 +299,7 @@ export const useShader = (fragShaderCode) => {
 };
 
 function initBuffers(gl) {
-    console.log("INIT BUFFERS CALLED");
+    glConsoleLog("INIT BUFFERS CALLED");
     let vertices = new Float32Array([
         -1.0, -1.0, 0.0,
         -1.0, +1.0, 0.0,
@@ -316,7 +329,7 @@ function initShaderProgram(gl, fragmentShader, currentObj) {
     };
 
     if (!obj.vert) {
-        console.log("CREATE NEW VERTEX SHADER")
+        glConsoleLog("CREATE NEW VERTEX SHADER")
         obj.vert = gl.createShader(gl.VERTEX_SHADER);
         gl.shaderSource(obj.vert, obj.vertShaderCode);
         gl.compileShader(obj.vert);
@@ -327,7 +340,7 @@ function initShaderProgram(gl, fragmentShader, currentObj) {
         }
     }
 
-    console.log("CREATE NEW FRAGMENT SHADER")
+    glConsoleLog("CREATE NEW FRAGMENT SHADER");
     const frag = gl.createShader(gl.FRAGMENT_SHADER);
     gl.shaderSource(frag, fragmentShader);
     gl.compileShader(frag);
@@ -337,7 +350,7 @@ function initShaderProgram(gl, fragmentShader, currentObj) {
         return [obj, error];
     }
     if (obj.prog && obj.frag) {
-        console.log("-- DETACH & DELETE FRAGMENT SHADER");
+        glConsoleLog("-- DETACH & DELETE FRAGMENT SHADER");
         gl.detachShader(obj.prog, obj.frag);
         gl.deleteShader(obj.frag);
     }
@@ -345,10 +358,10 @@ function initShaderProgram(gl, fragmentShader, currentObj) {
     obj.fragShaderCode = fragmentShader;
 
     if (obj.prog) {
-        console.log("-- DELETE SHADER PROGRAM")
+        glConsoleLog("-- DELETE SHADER PROGRAM")
         gl.deleteProgram(obj.prog);
     }
-    console.log("--> CREATE NEW PROGRAM")
+    glConsoleLog("--> CREATE NEW PROGRAM")
     obj.prog = gl.createProgram();
     gl.attachShader(obj.prog, obj.vert);
     gl.attachShader(obj.prog, obj.frag);

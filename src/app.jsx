@@ -1,7 +1,7 @@
 import './app.css';
-import {FirstSample} from "./pages/FirstSample.jsx";
+import {FirstSample} from "./components/deprecated/FirstSample.jsx";
 import {ErrorBoundary, LocationProvider, Route, Router} from "preact-iso";
-import {MainApp} from "./pages/MainApp.jsx";
+import {ShaderLoader} from "./components/ShaderLoader.jsx";
 
 export const App = () => (
     <LocationProvider>
@@ -13,9 +13,9 @@ export const App = () => (
                 />
                 <Route
                     path={"/:shaderId"}
-                    component={MainApp}
+                    component={ShaderLoader}
                 />
-                <MainApp default/>
+                <ShaderLoader default/>
             </Router>
         </ErrorBoundary>
     </LocationProvider>

@@ -1,5 +1,5 @@
-import {MainLayout} from "./MainApp.jsx";
-import someShader from "../shaders/sample.glsl";
+import someShader from "../../shaders/sample.glsl";
+import {MainLayout} from "../MainLayout.jsx";
 
 const storageKey = "qm.shader.first";
 const initialShader = localStorage.getItem(storageKey) ?? someShader.trim();
