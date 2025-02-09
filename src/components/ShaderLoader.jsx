@@ -14,7 +14,7 @@ export const ShaderLoader = () => {
         isLoading: true,
         shaderKey: "",
         error: "",
-        wasStored: false
+        wasStored: false,
     });
     const route = useRoute();
     const location = useLocation();
@@ -71,8 +71,15 @@ export const ShaderLoader = () => {
     if (state.isLoading) {
         return (
             <div className={"loading wave"}>
-                <h2 className={"wave resize-wave"} style={{"--amplitude": "1rem", "--factor": 0.7}}>Hähähä.</h2>
-                <h4 className={"resize-wave"}>Habs gleich.</h4>
+                <h2
+                    className={"wave resize-wave"}
+                    style={{"--amplitude": "1rem", "--factor": 0.7}}
+                >
+                    Hähähä.
+                </h2>
+                <h4 className={"resize-wave"}>
+                    Habs gleich.
+                </h4>
             </div>
         );
     }
@@ -84,4 +91,3 @@ export const ShaderLoader = () => {
         />
     );
 };
-

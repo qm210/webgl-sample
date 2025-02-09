@@ -62,13 +62,16 @@ export const useShader = (fragShaderCode) => {
         buffer: {
             vertex: null,
             index: null,
-            fboPing: null,
-            fboPong: null,
+            frame: null,
+            framePong: null,
         },
+        location: null,
+        maxPass: 1,
     });
     const [uniforms, setUniforms] = useState({
         iResolution: null,
         iAspectRatio: null,
+        iPass: 0,
     });
     const [loopSec, setLoopSec] = useState(null);
     const initFragShader = useRef(fragShaderCode);
@@ -79,7 +82,7 @@ export const useShader = (fragShaderCode) => {
         cycles: 1000,
         cursor: 0,
         start: null,
-        end: null
+        measureSec: null,
     });
 
     // about the current fragment shader
@@ -108,7 +111,7 @@ export const useShader = (fragShaderCode) => {
         consoleLog("Compiled.", shaderObj);
         consoleIfError(error);
 
-        if (shaderObj.prog && !error) {
+        if (shaderObj.program && !error) {
             shader.current = shaderObj;
             setWorking({
                 shader: shaderObj.fragShaderCode,
@@ -143,58 +146,78 @@ export const useShader = (fragShaderCode) => {
 
     /* RENDER LOOP */
     const render = useCallback((gl, iTime) => {
-        const p = shader.current.prog;
+        const s = shader.current;
+        const p = s.program;
         if (!p) {
             return;
         }
-        // IMPORTANT: first useProgram() before you can use the program ;) make sense, yes. but is important.
-        gl.useProgram(p);
+        if (!s.location) {
+            // gets reset after a new shader compilated, i.e. run once.
+            s.location = {
+                iTime: gl.getUniformLocation(p, "iTime"),
+                iResolution: gl.getUniformLocation(p, "iResolution"),
+                iAspectRatio: gl.getUniformLocation(p, "iAspectRatio"),
+                iPass: gl.getUniformLocation(p, "iPass"),
+                previousFrame: gl.getUniformLocation(p, "previousFrame"),
+            };
+            s.maxPass = tryParseMaxPass(s.fragShaderCode);
+            s.frame = 0;
 
-        // preparing FBO Ping-Pong
-        const fbo1 = shader.current.buffer.fboPing;
-        const fbo2 = shader.current.buffer.fboPong;
-        // TODO: BIGGEST QUESTION MARK (ask nr4 the shader magician) - why does this break the thing?
-        // gl.bindFramebuffer(gl.FRAMEBUFFER, fbo1.fbo);
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, fbo2.texture);
-
-        // Pass the uniforms ...
-        gl.uniform1f(
-            gl.getUniformLocation(p, "iTime"),
-            iTime
-        );
-        if (uniforms.iResolution) {
-            gl.uniform2fv(
-                gl.getUniformLocation(p, "iResolution"),
-                uniforms.iResolution,
-            );
+            // IMPORTANT: first useProgram() before you can use the program ;) make sense, yes. but is important.
+            gl.useProgram(p);
+        } else {
+            s.frame += 1;
         }
-        if (uniforms.iAspectRatio) {
-            gl.uniform1f(
-                gl.getUniformLocation(p, "iAspectRatio"),
-                uniforms.iAspectRatio,
-            );
-        }
-        // <-- ... extend further uniforms as required. ...
-
-        // ... and also the FBO-Ping-Pong Texture
-        gl.uniform1i(
-            gl.getUniformLocation(p, "previousFrame"),
-            0
-        );
 
         const attribLocation = gl.getAttribLocation(p, "position");
         gl.enableVertexAttribArray(attribLocation);
-        gl.bindBuffer(gl.ARRAY_BUFFER, shader.current.buffer.vertex);
+        gl.bindBuffer(gl.ARRAY_BUFFER, s.buffer.vertex);
         gl.vertexAttribPointer(attribLocation, 3, gl.FLOAT, false, 0, 0);
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, shader.current.buffer.index);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, s.buffer.index);
 
-        // This is the core: we actually draw \o/
+        // Pass the uniforms ...
+        gl.uniform1f(s.location.iTime, iTime);
+        if (uniforms.iResolution) {
+            gl.uniform2fv(s.location.iResolution, uniforms.iResolution);
+        }
+        if (uniforms.iAspectRatio) {
+            gl.uniform1f(s.location.iAspectRatio, uniforms.iAspectRatio);
+        }
+        // <-- ... extend further uniforms as required. ...
+
+        // TODO: this somewhat mixes the concepts of "pass" with the
+        // drawing-on-the-backbuffer concept.
+        // maybe we should just use another fragshader that just passes
+        // the texture to the front, but anyway.
+
+        //gl.uniform1i(s.location.previousFrame, 0);
+        // not needed, as said said: https://learnopengl.com/Getting-started/Textures
+        // All that's left to do now is to bind the texture before calling glDrawElements
+        // and it will then automatically assign the texture to the fragment shader's sampler:
+        // glBindTexture(GL_TEXTURE_2D, texture);
+
+        // this is the two-iPass-loop-solution --->
+        const [fbo1, fbo2] = (s.frame % 2 === 0)
+            ? [s.buffer.framePing, s.buffer.framePong]
+            : [s.buffer.framePong, s.buffer.framePing];
+
+        gl.uniform1i(s.location.iPass, 0);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo1.fbo);
         gl.drawElements(gl.TRIANGLE_STRIP, 4, gl.UNSIGNED_SHORT, 0);
 
-        // Do the FBO Ping-Pong-Switcheroo :)
-        shader.current.buffer.fboPing = fbo2;
-        shader.current.buffer.fboPong = fbo1;
+        gl.uniform1i(s.location.iPass, 1);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null); // draw on screen
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, fbo1.texture);
+        gl.drawElements(gl.TRIANGLE_STRIP, 4, gl.UNSIGNED_SHORT, 0);
+        // <----
+
+        /*
+        // THIS IS THE SINGLE PASS WAY HAT WORKS
+        gl.uniform1i(s.location.iPass, 0);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null); // draw on screen
+        gl.drawElements(gl.TRIANGLE_STRIP, 4, gl.UNSIGNED_SHORT, 0);
+         */
     }, [shader.current, uniforms]);
 
     useEffect(() => {
@@ -234,9 +257,7 @@ export const useShader = (fragShaderCode) => {
 
             if (perfMeasure.current.start === null) {
                 perfMeasure.current.start = performance.now();
-                perfMeasure.current.cursor = perfMeasure.current.cycles;
-            } else if (perfMeasure.current.cursor > 0) {
-                perfMeasure.current.cursor -= 1;
+                perfMeasure.current.cursor = 0;
             }
 
             try {
@@ -246,15 +267,13 @@ export const useShader = (fragShaderCode) => {
                 console.error("Render error", err);
             }
 
-            if (perfMeasure.current.cursor === 0) {
-                perfMeasure.current.end = performance.now();
-                perfMeasure.current.cursor -= 1;
-                console.log(
-                    "[PERFORMANCE MEASUREMENT], cycles: ",
-                    perfMeasure.current.cycles,
-                    "took seconds: ",
-                    0.001 * (perfMeasure.current.end - perfMeasure.current.start)
-                );
+            perfMeasure.current.cursor += 1;
+            if (perfMeasure.current.cursor >= perfMeasure.current.cycles) {
+                const now = performance.now();
+                perfMeasure.current.measureSec = 0.001 * (now - perfMeasure.current.start) / perfMeasure.current.cycles;
+                perfMeasure.current.start = now;
+                perfMeasure.current.cursor = 0;
+                console.log("[PERFORMANCE] render loop avg. seconds", perfMeasure.current.measureSec);
             }
         }
 
@@ -269,10 +288,10 @@ export const useShader = (fragShaderCode) => {
                 cancelAnimationFrame(animationRef.current);
                 restart();
             }
-
+            console.log("[Cleanup] ... should delete the framebuffer / texture stuff ...");
             // console.log("trying to lose Context...");
             // glRef.current?.getExtension("WEBGL_lose_context")?.loseContext();
-        }
+        };
     }, [ref.current, render, restart, loopSec]);
 
     const shaderError = useMemo(() => {
@@ -341,14 +360,18 @@ function initBuffers(gl) {
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, iBuff);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
 
-    // for FBO Ping-Pong -- could have an array with just two fbo instances, but maybe this makes the poing clearer.. .
-    const fboPing = createFBO(gl);
-    const fboPong = createFBO(gl);
+    const framePing = createFBO(gl);
+    const framePong = createFBO(gl);
     // QUESTion:
     // what is depth buffer support, why use?
     // what is the depth buffer internal format, why DEPTH_COMPONENT24 ?
 
-    return {vertex: vBuff, index: iBuff, fboPing, fboPong};
+    return {
+        vertex: vBuff,
+        index: iBuff,
+        framePing,
+        framePong,
+    };
 }
 
 function initShaderProgram(gl, fragmentShader, currentObj) {
@@ -358,10 +381,8 @@ function initShaderProgram(gl, fragmentShader, currentObj) {
         vertShaderCode: vertexShader,
         frag: null,
         fragShaderCode: fragmentShader,
-        prog: null,
-    } : {
-        ...currentObj,
-    };
+        program: null,
+    } : {...currentObj};
 
     if (!obj.vert) {
         glConsoleLog("CREATE NEW VERTEX SHADER")
@@ -384,55 +405,62 @@ function initShaderProgram(gl, fragmentShader, currentObj) {
         gl.deleteShader(frag);
         return [obj, error];
     }
-    if (obj.prog && obj.frag) {
+    if (obj.program && obj.frag) {
         glConsoleLog("-- DETACH & DELETE FRAGMENT SHADER");
-        gl.detachShader(obj.prog, obj.frag);
+        gl.detachShader(obj.program, obj.frag);
         gl.deleteShader(obj.frag);
     }
     obj.frag = frag;
     obj.fragShaderCode = fragmentShader;
 
-    if (obj.prog) {
+    if (obj.program) {
         glConsoleLog("-- DELETE SHADER PROGRAM")
-        gl.deleteProgram(obj.prog);
+        gl.deleteProgram(obj.program);
     }
     glConsoleLog("--> CREATE NEW PROGRAM")
-    obj.prog = gl.createProgram();
-    gl.attachShader(obj.prog, obj.vert);
-    gl.attachShader(obj.prog, obj.frag);
-    gl.linkProgram(obj.prog);
-    if (!gl.getProgramParameter(obj.prog, gl.LINK_STATUS)) {
-        error = "Shader Linking Error: " + gl.getProgramInfoLog(obj.prog);
-        gl.deleteProgram(obj.prog);
-        obj.prog = null;
+    obj.program = gl.createProgram();
+    gl.attachShader(obj.program, obj.vert);
+    gl.attachShader(obj.program, obj.frag);
+    gl.linkProgram(obj.program);
+    if (!gl.getProgramParameter(obj.program, gl.LINK_STATUS)) {
+        error = "Shader Linking Error: " + gl.getProgramInfoLog(obj.program);
+        gl.deleteProgram(obj.program);
+        obj.program = null;
     }
 
     return [obj, error];
 }
 
-function createFBO(gl, withDepthBuffer=true) {
+function createFBO(gl, withDepthBuffer = false) {
     const width = gl.drawingBufferWidth;
     const height = gl.drawingBufferHeight;
-
-    // they say it is better with depth - TODO - find out why / compare. :)
-
-    const fbo = gl.createFramebuffer();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
 
     const texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    // <-- format gl.FLOAT could look like the following (see tables at https://registry.khronos.org/OpenGL-Refpages/es3.1/)
+    // gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, width, height, 0, gl.RGB, gl.FLOAT, null);
+    // but throws one of these:
+    // [.WebGL-0x1dd400107100] GL_INVALID_FRAMEBUFFER_OPERATION: Framebuffer is incomplete: Attachment is not renderable.
+    // [.WebGL-0x1dd402129400] GL_INVALID_FRAMEBUFFER_OPERATION: Framebuffer is incomplete: Attachment has zero size.
 
+    const fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+    // <-- now the texture is the framebuffer's render target, I should not
+
+    // need bindTexture() again if I do not call any gl.tex...(...) again.
+    gl.bindTexture(gl.TEXTURE_2D, null);
 
     // QUESTions:
     // ... all these constants / parameters? what are teh options of se meeeaninginging???
     // play around: how can this fuck it up?
 
+    // they say it is better with depth - TODO - find out why / compare. :)
     // QUESTion: what is "DEPTH"?
     let depthBuffer = null;
     if (withDepthBuffer) {
@@ -455,3 +483,14 @@ function createFBO(gl, withDepthBuffer=true) {
         depthBuffer
     };
 }
+
+const FIND_DUMB_IPASS_COMPARISON = /iPass\s*==\s*(\d+)/g;
+
+const tryParseMaxPass = (shader) => {
+    let maxCompared = 0;
+    for (const match of shader.matchAll(FIND_DUMB_IPASS_COMPARISON)) {
+        const compared = +match[1];
+        maxCompared = Math.max(maxCompared, compared);
+    }
+    return maxCompared;
+};

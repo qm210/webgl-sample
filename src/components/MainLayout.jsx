@@ -16,6 +16,7 @@ export const currentMethod = signal(null);
 export const options = signal({
     noStorage: true
 });
+
 const toggleOption = (key) => {
     options.value = {
         ...options.value,
@@ -85,7 +86,10 @@ export const MainLayout = ({
                                 onClick={handleLineJump(method.lineIndex)}
                                 className={method.code === currentMethod?.code ? "infobox" : ""}
                             >
-                                {method.returnType} <span className={"link"}>{method.name}{method.shortArgs}</span>
+                                {method.returnType}{" "}
+                                <span className={"link"}>
+                                    {method.name}{method.shortArgs}
+                                </span>
                             </li>
                         )
                     }
@@ -219,9 +223,13 @@ const Main = styled.div`
     .boxed {
         border: 1px solid #ddda;
         box-shadow: 1px 1px 2px #ddd4;
-        padding: 0.5rem;
+        padding: 0.25rem;
         margin: 0.25rem;
-        gap: 0.25rem;
+        gap: 0.5rem;
+        
+        & > span:last-of-type {
+            margin-right: 0.5rem;
+        }
     }
     
     .error-grid {

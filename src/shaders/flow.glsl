@@ -5,6 +5,7 @@ out vec4 FragColor;
 uniform float iTime;
 uniform vec2 iResolution;
 uniform sampler2D previousFrame;
+uniform int iPass;
 
 const vec3 c = vec3(1.,0.,-1.);
 const float TAU = 6.28318530718;
@@ -189,11 +190,11 @@ float rndSeed = 0.1;
 #define RND_STEP .2
 
 void randomCircles(inout vec3 col, in vec2 uv) {
-    float lifeSeconds = 0.5;
-    float spawnInterval = 2.;
+    float lifeSeconds = 0.001;
+    float spawnInterval = 0.5;
     bool alive = false;
     vec2 pos;
-    float radius = 0.02;
+    float radius = 0.04;
 
     float lifetime = mod(iTime, spawnInterval);
     rndSeed += RND_STEP * floor(iTime / spawnInterval);
@@ -222,15 +223,24 @@ void randomCircles(inout vec3 col, in vec2 uv) {
 //void mainImage( out vec4 fragColor, in vec2 fragCoord )
 void main()
 {
-    // Normalized pixel coordinates (from 0 to 1)
-    vec2 uv = (gl_FragCoord.xy)/iResolution.y - vec2(1., 0.5);
-
-    vec4 previous = texture(previousFrame, uv);
-
     // start with one and then can mulitply to durken -> awesome, I guess?
     vec3 col = vec3(1.);
 
-    randomCircles(col, uv);
+    // Normalized pixel coordinates (from 0 to 1)
+    vec2 uv = gl_FragCoord.xy/iResolution.y - vec2(1., 0.5);
+    vec2 texUv = gl_FragCoord.xy/iResolution.xy;
+
+    if (iPass == 1) {
+        vec4 previous = texture(previousFrame, texUv);
+        col = previous.xyz;
+    }
+    else {
+        randomCircles(col, uv);
+
+        vec3 prev = texture(previousFrame, texUv + vec2(0., 0.001)).xyz;
+        col = max(col, 0.95 * prev);
+        col = clamp(col, 0., 1.);
+    }
 
     // Output to screen
     FragColor = vec4(col,1.0);

@@ -67,7 +67,7 @@ export const ShaderEditor = ({
                     onCursorChange={onCursorChange}
                 />
             </div>
-            <div className={"flex-row"}>
+            <div className={"flex-row"} >
                 <button
                     onClick={onApply}
                 >
@@ -99,8 +99,9 @@ export const ShaderEditor = ({
                 </div>
                 <button
                     onClick={onSaveToFile}
+                    title={"Save the shader that last successfully compiled to file..."}
                 >
-                    Save Textfile (the running one)
+                    Save Textfile
                 </button>
             </div>
         </EditorContainer>
@@ -119,5 +120,9 @@ const EditorContainer = styled.div`
         padding: 4px;
         box-shadow: 2px 2px 6px #2224 inset;
         border: 1px solid #ddd;
+    }
+    
+    & button {
+        font-size: smaller;
     }
 `;
