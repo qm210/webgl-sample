@@ -207,7 +207,6 @@ export const useShader = (fragShaderCode) => {
 
         gl.uniform1i(s.location.iPass, 1);
         gl.bindFramebuffer(gl.FRAMEBUFFER, null); // draw on screen
-        gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, fbo1.texture);
         gl.drawElements(gl.TRIANGLE_STRIP, 4, gl.UNSIGNED_SHORT, 0);
         // <----
@@ -451,9 +450,8 @@ function createFBO(gl, withDepthBuffer = false) {
     const fbo = gl.createFramebuffer();
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
-    // <-- now the texture is the framebuffer's render target, I should not
 
-    // need bindTexture() again if I do not call any gl.tex...(...) again.
+    // ... now the texture is the framebuffer's render target, shouldn't need bindTexture again:
     gl.bindTexture(gl.TEXTURE_2D, null);
 
     // QUESTions:

@@ -189,15 +189,17 @@ vec2 randomPos(in float seed) {
 float rndSeed = 0.1;
 #define RND_STEP .2
 
+float lifeSeconds = 0.3;
+float spawnInterval = 0.5;
+
 void randomCircles(inout vec3 col, in vec2 uv) {
-    float lifeSeconds = 0.001;
-    float spawnInterval = 0.5;
     bool alive = false;
     vec2 pos;
-    float radius = 0.04;
 
     float lifetime = mod(iTime, spawnInterval);
     rndSeed += RND_STEP * floor(iTime / spawnInterval);
+
+    float radius = 0.02 + 0.03 * hash1(rndSeed);
 
     if (lifetime < lifeSeconds) {
         pos = randomPos(rndSeed);
@@ -210,7 +212,12 @@ void randomCircles(inout vec3 col, in vec2 uv) {
     col = c.yyy;
     if (alive) {
         if (distance(uv, pos) <= radius) {
-            col = vec3(1.);
+            rndSeed += 0.5;
+            col = vec3(
+                hash1(rndSeed),
+                hash1(rndSeed),
+                hash1(rndSeed)
+            );
         }
     }
 
@@ -237,8 +244,25 @@ void main()
     else {
         randomCircles(col, uv);
 
-        vec3 prev = texture(previousFrame, texUv + vec2(0., 0.001)).xyz;
-        col = max(col, 0.95 * prev);
+        // flow down
+//         vec3 prev = texture(previousFrame, texUv + vec2(0., 0.001)).xyz;
+//         col = max(col, 0.985 * prev);
+
+        // copied from randomCircles to do some schabernack
+        float lifetime = mod(iTime, spawnInterval);
+
+        // gaussian blur!
+        float directions = 16.;
+        float quali = 0.005;
+        float radius = 50.;
+        float fade = 0.97;
+        for (float d=0.; d<TAU; d+=TAU/directions) {
+            for (float q=quali; q<=1.; q+=quali) {
+                vec2 tex = gl_FragCoord.xy + radius * q * vec2(cos(d), sin(d));
+                vec3 prev = texture(previousFrame, tex/iResolution.xy).xyz;
+                col += fade * prev * quali / directions;
+            }
+        }
         col = clamp(col, 0., 1.);
     }
 
